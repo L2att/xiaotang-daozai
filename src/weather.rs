@@ -179,9 +179,27 @@ fn http_agent() -> ureq::Agent {
     builder.build()
 }
 
+/// 优先取公网 IPv4：双栈网络下 ipwho 常把 IPv6 出口判到北京，IPv4 库更准。
+fn public_ipv4(agent:&ureq::Agent)->Option<String> {
+    use std::io::Read;
+    ["https://ip.3322.net","https://ipv4.icanhazip.com"].iter().find_map(|endpoint|{
+        let mut text=String::new();
+        agent.get(endpoint).call().ok()?.into_reader().take(64).read_to_string(&mut text).ok()?;
+        parse_ipv4(&text)
+    })
+}
+
+fn parse_ipv4(text:&str)->Option<String> {
+    text.trim().parse::<std::net::Ipv4Addr>().ok().map(|ip|ip.to_string())
+}
+
 /// 按网络出口定位；国内常见出口能拿到中文城市名。
 pub fn locate(agent: &ureq::Agent) -> Result<Position, String> {
-    let url = url::Url::parse("https://ipwho.is/?lang=zh-CN").map_err(|_| "定位服务地址无效")?;
+    let endpoint=match public_ipv4(agent) {
+        Some(ip)=>format!("https://ipwho.is/{ip}?lang=zh-CN"),
+        None=>"https://ipwho.is/?lang=zh-CN".to_string(),
+    };
+    let url = url::Url::parse(&endpoint).map_err(|_| "定位服务地址无效")?;
     let value = get(agent, &url)?;
     if !value["success"].as_bool().unwrap_or(false) { return Err("自动定位失败，请在设置里填写城市".into()); }
     let lat = value["latitude"].as_f64().ok_or("定位结果缺少坐标")?;
@@ -850,6 +868,13 @@ mod tests {
         assert_eq!(s.days[3].rain, 25);
         assert_eq!(s.sunrise.as_deref(), Some("06:52"), "应截取日出时间的 HH:MM");
         assert_eq!(s.sunset.as_deref(), Some("17:21"));
+    }
+
+    #[test]
+    fn ipv4_probe_ignores_ipv6_and_non_ip_text() {
+        assert_eq!(parse_ipv4("113.16.141.235\n"),Some("113.16.141.235".into()));
+        assert_eq!(parse_ipv4("240e:350:d1e:4000:91e9:3310:93df:9796"),None,"IPv6 会触发错误的城市判断，不能采用");
+        assert_eq!(parse_ipv4("<html>error</html>"),None);
     }
 
     #[test]

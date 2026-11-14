@@ -1346,6 +1346,11 @@ impl App {
                         settings_card(ui,|ui|{
                             setting_row(ui,"电量","本机电量、充电状态与提醒；无电池设备自动隐藏",&mut self.settings.show_battery);
                             ui.separator();
+                            setting_row(ui,"外设电量","两枚圆环常驻岛条最左侧：左 2.4G、右蓝牙；同类设备有多个时显示当前正在使用的那个",&mut self.settings.show_mouse_battery);
+                            if self.settings.show_mouse_battery {
+                                ui.label(egui::RichText::new(self.peripheral_summary().replace('\n',"　　")).size(11.5).color(settings_color(ctx,Color32::from_gray(175),Color32::from_gray(90))));
+                            }
+                            ui.separator();
                             setting_row(ui,"岛上歌词","收起时显示歌词，无歌词时显示封面和歌名",&mut self.settings.island_lyrics);
                         });
                         settings_label(ui,"功能页面");

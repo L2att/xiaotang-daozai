@@ -123,6 +123,8 @@ pub struct Env {
     pub bt: Vec<crate::bt::Device>,
     /// 蓝牙服务是否已经完成首次扫描。
     pub bt_ready: bool,
+    /// 两个 2.4G 接收器的电量与当前使用的那把。
+    pub mice: crate::mouse_battery::State,
     /// 岛所在屏幕（与 `win` 同一坐标系，逻辑点）；用于让通知详情留在屏幕内。
     pub screen: Option<Rect>,
     /// 毛玻璃皮肤：岛体四周采样得到的背景色（sRGB 0..1）。
@@ -796,6 +798,31 @@ pub struct App {
     pub(crate) updates: crate::updates::State,
     pub(crate) resident: bar::Motion,
     pub(crate) resident_power: (Option<u8>,bool),
+    /// 2.4G 电量环的数据（外壳后台线程推送）。
+    pub(crate) mice: crate::mouse_battery::State,
+    /// 蓝牙电量环选中的设备与电量。
+    pub(crate) bt_battery: Option<(String, u8)>,
+    bt_ring_id: Option<String>,
+    bt_seen: Vec<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BtCache { id: String, name: String, level: u8 }
+
+fn bt_cache_path() -> std::path::PathBuf { crate::model::config_dir().join("bt-battery.json") }
+
+fn load_bt_cache() -> Option<BtCache> {
+    let text = std::fs::read_to_string(bt_cache_path()).ok()?;
+    let cache: BtCache = serde_json::from_str(&text).ok()?;
+    (cache.level <= 100).then_some(cache)
+}
+
+fn save_bt_cache(id: &str, name: &str, level: u8) {
+    let path = bt_cache_path();
+    if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
+    if let Ok(text) = serde_json::to_string(&BtCache { id: id.into(), name: name.into(), level }) {
+        let _ = std::fs::write(path, text);
+    }
 }
 
 impl App {
@@ -816,6 +843,7 @@ impl App {
         let initial_lyrics=settings.lyrics_enabled;
         let initial_page=settings.page_order.iter().copied().find(|page|settings.visible_pages[*page]).unwrap_or(0);
         let weather=crate::weather::State::load(&settings.weather_city,settings.weather_position.as_ref());
+        let bt_cache=load_bt_cache();
         Self {
             opts,
             render_compat_running: settings.render_compat,
@@ -915,7 +943,7 @@ impl App {
             quota: crate::quota_ui::State::load(),
             weather,
             updates: Default::default(),
-            resident: Default::default(), resident_power:(None,false),
+            resident: Default::default(), resident_power:(None,false), mice: crate::mouse_battery::State::load(), bt_battery: bt_cache.as_ref().map(|cache|(cache.name.clone(),cache.level)), bt_ring_id: bt_cache.map(|cache|cache.id), bt_seen: Vec::new(),
         }
     }
 
@@ -1405,6 +1433,45 @@ impl App {
         self.bt_shown = env.bt.clone();
     }
 
+    /// 蓝牙电量环：优先刚连接的音频设备；否则沿用当前设备，设备消失后再重新挑一个。
+    fn select_bt_battery(&mut self, devices: &[crate::bt::Device]) {
+        let candidates: Vec<&crate::bt::Device> = devices.iter().filter(|device| device.battery.is_some()).collect();
+        if candidates.is_empty() {
+            // 暂时读不到蓝牙电量：保留上一次的显示，等有新数据再更新。
+            self.bt_seen = devices.iter().map(|device| device.id.clone()).collect();
+            return;
+        }
+        let fresh: Vec<&crate::bt::Device> = candidates.iter().copied()
+            .filter(|device| !self.bt_seen.iter().any(|id| *id == device.id)).collect();
+        let keep = self.bt_ring_id.as_ref()
+            .and_then(|id| candidates.iter().find(|device| &device.id == id)).copied();
+        let chosen = fresh.iter().find(|device| device.kind.is_audio()).copied()
+            .or(keep)
+            .or_else(|| candidates.iter().find(|device| device.kind.is_audio()).copied())
+            .or_else(|| fresh.first().copied())
+            .or_else(|| candidates.first().copied());
+        if let Some(device) = chosen {
+            let level = device.battery.unwrap_or(0);
+            if self.bt_battery.as_ref() != Some(&(device.name.clone(), level)) || self.bt_ring_id.as_deref() != Some(device.id.as_str()) {
+                self.bt_battery = Some((device.name.clone(), level));
+                self.bt_ring_id = Some(device.id.clone());
+                save_bt_cache(&device.id, &device.name, level);
+            }
+        } else {
+            self.bt_battery = None;
+            self.bt_ring_id = None;
+        }
+        self.bt_seen = devices.iter().map(|device| device.id.clone()).collect();
+    }
+
+    /// 两枚外设电量环的悬停提示。
+    pub(crate) fn peripheral_summary(&self) -> String {
+        let bluetooth = self.bt_battery.as_ref()
+            .map(|(name, level)| format!("蓝牙 · {name} · {level}%"))
+            .unwrap_or_else(|| "蓝牙 · 未连接".into());
+        format!("{}\n{bluetooth}", self.mice.summary())
+    }
+
     /// 距离上次交互的秒数（小精灵出现的依据）。
     pub fn idle_for(&self) -> f64 {
         self.system_idle.unwrap_or(self.t - self.last_input)
@@ -1721,7 +1788,9 @@ impl App {
         self.update_media(env,&ctx);
         let bell=self.t<self.notification_bell_until&&!self.compact_notices();
         self.resident_power=(env.battery,env.charging);
-        let mut layout=Layout::new(self.settings.show_battery&&env.battery.is_some(),self.quota_bar_indices().len(),self.media.is_music()&&!bell,self.pomo.running,bell,self.pet_enabled(),self.weather_pill().is_some());
+        self.mice.merge(env.mice);
+        self.select_bt_battery(&env.bt);
+        let mut layout=Layout::new(self.settings.show_battery&&env.battery.is_some(),self.settings.show_mouse_battery,self.quota_bar_indices().len(),self.media.is_music()&&!bell,self.pomo.running,bell,self.pet_enabled(),self.weather_pill().is_some());
         layout.reorder(&self.settings.resident_order);
         for (position,extra) in self.quota_balance_layout(&ctx){layout.balance_tail(position,extra);}
         if self.settings.clock_period!=0 { layout.widen_clock(40.0); }
@@ -2693,8 +2762,17 @@ impl App {
         }
         if compact_alpha>0.004 {
             let c=base.faded(compact_alpha);let c=if compact_alpha<0.8{c.ghost()}else{c};
+            if let Some(x)=layout.x[bar::MICE] {
+                let mouse=self.mice.current();
+                paint::peripheral_rings(&c,local_cx+x,15.0,(mouse.level,mouse.charging),self.bt_battery.as_ref().map(|(_,level)|*level),1.0);
+            }
             self.draw_quota_bar(&c,local_cx,&layout);
             if let Some(x)=layout.x[bar::WEATHER] { self.draw_pill_weather(&c,local_cx+x,&layout); }
+        }
+        if compact_alpha>0.5 {
+            if let Some(x)=layout.x[bar::MICE] {
+                base.hit(local_cx+x-24.0,1.0,48.0,28.0,"mouse-battery").on_hover_text(self.peripheral_summary());
+            }
         }
         if self.pomo.running && compact_alpha>0.004 {
             crate::focus_bar::draw(&base.faded(compact_alpha),local_cx+layout.x[bar::FOCUS].unwrap(),15.0,self.t,&self.pomo,self.phase_secs(self.pomo.phase),false);
@@ -2810,8 +2888,8 @@ impl App {
         let pages: Vec<_>=self.settings.page_order.iter().copied().filter(|page|self.settings.visible_pages[*page]).collect();
         if pages.len()<2 { return; }
         let arrow_y=if self.page==6||self.page==8{88.0}else{68.0};
-        let l = c.hit(8.0, arrow_y-13.0, 26.0, 26.0, "nav-l");
-        let r = c.hit(385.0, arrow_y-13.0, 26.0, 26.0, "nav-r");
+        let l = c.hit(4.0, arrow_y-17.0, 34.0, 34.0, "nav-l");
+        let r = c.hit(381.0, arrow_y-17.0, 34.0, 34.0, "nav-r");
         let (lh, lp) = c.hover_t(&l);
         let (rh, rp) = c.hover_t(&r);
         paint::chevron(c, 21.0, arrow_y, -1.0, lh, lp);
@@ -2820,7 +2898,7 @@ impl App {
         if r.clicked() { self.navigate_page(true); }
         // 页码豆：宽度由弹簧驱动，整行实时居中；当前页是白色长条
         let gap = 4.0;
-        let dot_y=self.expanded_height()-7.2;
+        let dot_y=self.expanded_height()-4.5;
         let total: f32 = pages.iter().map(|page| self.dots[*page].pos).sum::<f32>() + gap * (pages.len()-1) as f32;
         let mut x = PW / 2.0 - total / 2.0;
         let mut clicked = None;

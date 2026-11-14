@@ -449,6 +449,7 @@ fn main() {
             volume: Some((62, false)),
             bt: Vec::new(),
             bt_ready: true,
+            mice: daozai::mouse_battery::State { batteries: [daozai::mouse_battery::Battery { level: Some(57), charging: false }, daozai::mouse_battery::Battery { level: Some(71), charging: false }], selected: 0 },
             screen: None,
             backdrop: None,
             glass_blur: false,

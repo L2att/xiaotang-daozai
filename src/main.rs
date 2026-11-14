@@ -71,6 +71,10 @@ struct Shell {
     bt_rx: Option<daozai::bt::Service>,
     bt: Vec<daozai::bt::Device>,
     bt_ready: bool,
+    /// 两个 2.4G 接收器的电量与当前使用的那把（后台线程每 60 秒查询一次）。
+    #[cfg(windows)]
+    mouse_rx: Option<daozai::mouse_battery::Service>,
+    mice: daozai::mouse_battery::State,
     volume_quiet: PollClock,
     /// v0.5.5：邮件收信服务（工作线程），以及上次同步给它的账号/开关快照。
     /// 邮箱模块开启时才存在；关闭后收信与整理线程随之退出。
@@ -200,6 +204,9 @@ impl Shell {
             bt_rx: None,
             bt: Vec::new(),
             bt_ready: false,
+            #[cfg(windows)]
+            mouse_rx: None,
+            mice: Default::default(),
             volume_quiet: PollClock::default(),
             mail: None,
             mail_sig: None,
@@ -303,6 +310,7 @@ impl Shell {
             volume: self.system_state.volume,
             bt: self.bt.clone(),
             bt_ready: self.bt_ready,
+            mice: self.mice,
             screen,
             backdrop,
             glass_blur,
@@ -427,7 +435,8 @@ impl eframe::App for Shell {
             } else {
                 self.backdrop=None;
             }
-            if self.app.settings.bluetooth_notifications {
+            // 蓝牙服务既服务连接提醒，也服务岛上的蓝牙电量环。
+            if self.app.settings.bluetooth_notifications || self.app.settings.show_mouse_battery {
                 if self.bt_rx.is_none() {self.bt_rx=Some(daozai::bt::spawn());}
             } else {
                 self.bt_rx=None;
@@ -436,6 +445,17 @@ impl eframe::App for Shell {
             }
             if let Some(service)=&self.bt_rx {
                 while let Ok(found)=service.rx.try_recv(){ self.bt=found; self.bt_ready=true; }
+            }
+            if self.app.settings.show_mouse_battery {
+                if self.mouse_rx.is_none() {self.mouse_rx=Some(daozai::mouse_battery::spawn());}
+            } else {
+                self.mouse_rx=None;
+                self.mice=Default::default();
+            }
+            if let Some(service)=&self.mouse_rx {
+                let mut updated=false;
+                while let Ok(found)=service.rx.try_recv(){ self.mice=found; updated=true; }
+                if updated {ctx.request_repaint();}
             }
             let previous_pending=self.app.pending_messengers.clone();
             for event in self.messengers.poll_taskbar(ctx,&self.app.settings){match event{

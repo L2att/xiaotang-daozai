@@ -13,6 +13,11 @@ pub struct Device {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeviceKind { Bone, Earbuds, Headphones, Speaker, Keyboard, Mouse, Gamepad, Phone, Other }
 
+impl DeviceKind {
+    /// 音频设备优先作为蓝牙电量环的展示对象。
+    pub fn is_audio(self) -> bool { matches!(self, Self::Bone | Self::Earbuds | Self::Headphones | Self::Speaker) }
+}
+
 fn device_kind(name: &str, classic: bool, class: Option<u32>) -> DeviceKind {
     use DeviceKind::*;
     let name = name.to_lowercase();

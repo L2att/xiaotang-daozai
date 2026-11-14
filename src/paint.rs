@@ -403,10 +403,10 @@ pub fn close(c:&Card,cx:f32,cy:f32,r:f32,color:Color32) {
 pub fn chevron(c: &Card, x: f32, y: f32, dir: f32, hover: f32, press: f32) {
     let k = 1.0 - 0.08 * press;
     let c = c.scaled(x, y, k);
-    c.circle(x, y, 9.0, mix(theme::ARROW_BG, Color32::from_rgb(78, 78, 82), hover));
-    let nudge = dir * 0.8 * hover;
-    let (cx, s) = (x + nudge + dir * 0.6, 2.7);
-    c.path(&[(cx - dir * s * 0.75, y - s), (cx + dir * s * 0.45, y), (cx - dir * s * 0.75, y + s)], 1.6, Color32::WHITE);
+    c.circle(x, y, 12.2, mix(theme::ARROW_BG, Color32::from_rgb(78, 78, 82), hover));
+    let nudge = dir * 1.0 * hover;
+    let (cx, s) = (x + nudge + dir * 0.8, 3.6);
+    c.path(&[(cx - dir * s * 0.75, y - s), (cx + dir * s * 0.45, y), (cx - dir * s * 0.75, y + s)], 2.0, Color32::WHITE);
 }
 
 /// 电池环：充电绿色 + 闪电；低电量红色；否则灰色并显示百分比弧。
@@ -434,6 +434,43 @@ pub fn battery(c: &Card, cx: f32, cy: f32, pct: Option<u8>, charging: bool, k: f
         c.poly(&[(cx - 0.3 * s, cy - 0.9 * s), (cx + 3.2 * s, cy - 0.9 * s), (cx - 1.6 * s, cy + 5.0 * s)], col);
     } else {
         c.text(cx, cy + 2.4 * k, &format!("{}", pct.unwrap_or(0)), 6.6 * k, W::Bold, col, H::Center);
+    }
+}
+
+/// 两枚外设电量环：左侧 2.4G（淡绿）、右侧蓝牙（淡蓝）。
+/// 百分比常显（含 100% 和充电时）；设备休眠或未连接时只留一圈暗环和短横线。
+pub fn peripheral_rings(c: &Card, cx: f32, cy: f32, mouse: (Option<u8>, bool), bluetooth: Option<u8>, k: f32) {
+    let colors = [Color32::from_rgb(152, 232, 174), Color32::from_rgb(152, 204, 255)];
+    for (index, (level, charging)) in [(mouse.0, mouse.1), (bluetooth, false)].into_iter().enumerate() {
+        let x = cx + (if index == 0 { -11.8 } else { 11.8 }) * k;
+        let r = 8.2 * k;
+        let width = 2.6 * k;
+        let color = if charging {
+            theme::CHARGE
+        } else if level.is_some_and(|level| level < 20) {
+            theme::RED
+        } else {
+            colors[index]
+        };
+        match level {
+            Some(level) => {
+                let ratio = level.min(100) as f32 / 100.0;
+                c.ring(x, cy, r, width, alpha(color, 0.22));
+                let a0 = -FRAC_PI_2;
+                if ratio >= 0.999 {
+                    c.ring(x, cy, r, width, color);
+                } else {
+                    c.arc(x, cy, r, a0, a0 + TAU * ratio.max(0.02), width, color);
+                }
+            }
+            None => c.ring(x, cy, r, width, alpha(theme::DIM, 0.38)),
+        }
+        if let Some(level) = level {
+            let size = if level >= 100 { 6.0 * k } else { 6.6 * k };
+            c.text(x, cy + 2.4 * k, &level.to_string(), size, W::Bold, color, H::Center);
+        } else {
+            c.seg((x - 2.2 * k, cy), (x + 2.2 * k, cy), 1.4 * k, alpha(theme::DIM, 0.85));
+        }
     }
 }
 

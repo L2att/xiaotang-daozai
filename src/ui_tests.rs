@@ -2444,7 +2444,7 @@ fn resident_quota_moves_left_and_releases_battery_space(){
     for _ in 0..90 {h.frame(vec![]);}
     let before=h.quota_centers()[0];let width=h.app.current_width();assert!(before>WIN_W/2.0);
     h.app.settings.show_battery=false;for _ in 0..90 {h.frame(vec![]);}
-    let after=h.quota_centers()[0];assert!(after<WIN_W/2.0,"关闭电量后，额度应补到时间左侧");
+    let after=h.quota_centers()[0];let clock=WIN_W/2.0+h.app.resident.current().x[crate::bar_layout::CLOCK].unwrap();assert!(after<clock,"关闭电量后，额度应补到时间左侧");
     assert!(h.app.current_width()<width-20.0,"关闭组件后应释放实际占位");
     h.app.settings.show_battery=true;h.power=(None,false);for _ in 0..90 {h.frame(vec![]);}
     assert!((h.quota_centers()[0]-after).abs()<0.2,"无电池设备应采用相同补位布局");
@@ -2866,7 +2866,7 @@ fn quota_page_navigation_tracks_the_taller_panel(){
     h.app.show_page(6);h.hover(H::local(300.0,60.0),0.8);
     assert!((h.hit.height()-178.0).abs()<0.2,"额度页新增的底部空间应属于命中区域");
     let dot=h.shapes.iter().find_map(|shape|match &shape.shape{
-        egui::Shape::Rect(rect) if (rect.rect.width()-4.0).abs()<0.1&&(rect.rect.height()-4.0).abs()<0.1&&(rect.rect.center().y-168.8).abs()<0.1=>Some(rect.rect.center()),_=>None,
+        egui::Shape::Rect(rect) if (rect.rect.width()-4.0).abs()<0.1&&(rect.rect.height()-4.0).abs()<0.1&&(rect.rect.center().y-171.5).abs()<0.1=>Some(rect.rect.center()),_=>None,
     }).expect("分页圆点应随加高的面板下移");
     h.click(dot);assert_ne!(h.app.page,6,"新增底部区域中的分页应可点击");
     h.app.show_page(6);h.hover(H::local(300.0,60.0),0.8);
@@ -5471,12 +5471,12 @@ fn shelf_remove_icon_stays_centered_on_hover_and_preserves_the_file(){
 
 #[test]
 fn resident_components_can_be_dragged_saved_and_reset(){
-    use crate::bar_layout::{CLOCK,BATTERY};
+    use crate::bar_layout::{CLOCK,BATTERY,MICE};
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
     fn draw(h:&mut H,events:Vec<egui::Event>)->[Pos2;2]{
         let mut points=[Pos2::ZERO;2];
         h.t+=0.02;
-        let out=h.ctx.run(egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(600.0,300.0))),time:Some(h.t),events,..Default::default()},|ctx|{egui::CentralPanel::default().show(ctx,|ui|{h.app.resident_order_settings(ui);for (index,slot) in [CLOCK,BATTERY].into_iter().enumerate(){points[index]=ui.ctx().read_response(ui.id().with(("resident-icon",slot))).unwrap().rect.center();}});});
+        let out=h.ctx.run(egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(600.0,300.0))),time:Some(h.t),events,..Default::default()},|ctx|{egui::CentralPanel::default().show(ctx,|ui|{h.app.resident_order_settings(ui);for (index,slot) in [CLOCK,MICE].into_iter().enumerate(){points[index]=ui.ctx().read_response(ui.id().with(("resident-icon",slot))).unwrap().rect.center();}});});
         h.shapes=out.shapes;points
     }
     fn point(h:&H,label:&str)->Pos2{h.shapes.iter().find_map(|s|match &s.shape{egui::Shape::Text(t) if t.galley.text()==label=>Some(t.visual_bounding_rect().center()),_=>None}).unwrap()}
@@ -6537,7 +6537,7 @@ fn deepseek_balance_gallery(){
 #[test]
 fn deepseek_compact_amount_fits_text_and_opens_account(){
     use crate::quota::{Provider,Event};
-    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.quota_accounts(5);h.app.settings.pet=false;h.app.settings.resident_order=vec![1,9,2,0,6,7];
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.quota_accounts(5);h.app.settings.pet=false;h.app.settings.resident_order=vec![1,9,2,0,6,7,10];
     let id=h.app.quota.config.connect_deepseek("preview".into(),"DeepSeek".into());let mut width:Option<f32>=None;let mut amount_rect=Rect::NOTHING;
     for (amount,label) in [("4.18","¥4.1"),("12800.00","¥1.28万"),("128000.00","¥12.8万")]{
         let snapshot=crate::quota::parse(Provider::DeepSeek,&serde_json::json!({"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":amount,"topped_up_balance":amount,"granted_balance":"0.00"}]})).unwrap();h.app.quota_event(Event{id:id.clone(),result:Ok(snapshot)});
@@ -6814,7 +6814,7 @@ fn side_dock_stacks_ai_quota_and_opens_the_account(){
     let total=h.app.side_bar_len()-14.0;
     let mut y=top+(h.app.h.pos-total)/2.0;
     for item in h.app.side_items() {
-        let height=match item {crate::side_dock::SideItem::Quota(i,hh) if h.app.quota.config.accounts[i].id==wb=>{y+=hh/2.0;break;},crate::side_dock::SideItem::Quota(_,hh)=>hh,crate::side_dock::SideItem::Clock=>32.0,crate::side_dock::SideItem::Weather=>40.0,crate::side_dock::SideItem::Battery=>20.0,crate::side_dock::SideItem::Music=>18.0,crate::side_dock::SideItem::Focus|crate::side_dock::SideItem::Bell=>22.0};
+        let height=match item {crate::side_dock::SideItem::Quota(i,hh) if h.app.quota.config.accounts[i].id==wb=>{y+=hh/2.0;break;},crate::side_dock::SideItem::Quota(_,hh)=>hh,crate::side_dock::SideItem::Clock=>32.0,crate::side_dock::SideItem::Weather=>40.0,crate::side_dock::SideItem::Battery=>20.0,crate::side_dock::SideItem::Mice=>20.0,crate::side_dock::SideItem::Music=>18.0,crate::side_dock::SideItem::Focus|crate::side_dock::SideItem::Bell=>22.0};
         y+=height;
     }
     let click=Pos2::new(18.0,y);
@@ -7974,7 +7974,7 @@ fn weather_icon_atlas_preview(){
     for (name,palette,ppp) in [("weather-icons-dark",None,2.0f32),("weather-icons-cream",Some(crate::skin_paint::CREAM),2.0),("weather-icons-glass-light",Some(crate::skin_paint::GLASS_LIGHT),2.0),("weather-icons-dark-1x",None,1.0),("weather-icons-dark-125",None,1.25),("weather-icons-dark-150",None,1.5)] {
         let (pw,ph)=((924.0*ppp) as usize,(700.0*ppp) as usize);
         let mut h=H::new();h.app.settings.pet=false;
-        let mut layout=crate::bar_layout::Layout::new(false,0,false,false,false,false,true);layout.widths[crate::bar_layout::WEATHER]=50.0;
+        let mut layout=crate::bar_layout::Layout::new(false,false,0,false,false,false,false,true);layout.widths[crate::bar_layout::WEATHER]=50.0;
         let mut raster=crate::preview_raster::Raster::new(pw,ph);
         for frame in 0..4 {
             let raw=egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,Vec2::new(924.0,700.0))),time:Some(frame as f64),

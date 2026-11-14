@@ -21,14 +21,14 @@ pub const SIDE_HALF_EXTENT: f32 = 150.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum SideItem {
-    Clock, Weather, Battery, Music, Focus, Bell,
+    Clock, Weather, Battery, Mice, Music, Focus, Bell,
     /// AI 额度：账号下标（None 为「+N」）与高度。
     Quota(usize, f32),
 }
 
 impl SideItem {
     fn height(self) -> f32 {
-        match self { Self::Clock => 32.0, Self::Weather => 40.0, Self::Battery => 20.0, Self::Music => 18.0, Self::Focus => 22.0, Self::Bell => 22.0, Self::Quota(_, h) => h }
+        match self { Self::Clock => 32.0, Self::Weather => 40.0, Self::Battery => 20.0, Self::Mice => 20.0, Self::Music => 18.0, Self::Focus => 22.0, Self::Bell => 22.0, Self::Quota(_, h) => h }
     }
 }
 
@@ -41,6 +41,7 @@ impl App {
         let mut items = vec![SideItem::Clock];
         if self.weather_pill().is_some() {items.push(SideItem::Weather);}
         if self.settings.show_battery && self.resident_power.0.is_some() { items.push(SideItem::Battery); }
+        if self.settings.show_mouse_battery { items.push(SideItem::Mice); }
         if self.media.is_music() { items.push(SideItem::Music); }
         if self.pomo.running { items.push(SideItem::Focus); }
         items.extend(self.quota_side_items().into_iter().map(|(index, h)| SideItem::Quota(index, h)));
@@ -130,6 +131,10 @@ impl App {
                 }
                 SideItem::Weather => self.draw_side_weather(c,cx,mid),
                 SideItem::Battery => paint::battery(c, cx, mid, env.battery, env.charging, 0.72),
+                SideItem::Mice => {
+                    let mouse = self.mice.current();
+                    paint::peripheral_rings(c, cx, mid, (mouse.level, mouse.charging), self.bt_battery.as_ref().map(|(_, level)| *level), 0.62)
+                }
                 SideItem::Music => paint::playback_bars(c, cx, mid, self.t, self.media.playing, theme::WHITE),
                 SideItem::Focus => {
                     let minutes = (self.pomo.remaining / 60.0).ceil().max(0.0) as u32;

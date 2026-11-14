@@ -13,13 +13,15 @@ pub(crate) const MUSIC: usize = 6;
 pub(crate) const FOCUS: usize = 7;
 pub(crate) const BELL: usize = 8;
 pub(crate) const PET: usize = 9;
+/// 2.4G 与蓝牙两枚电量环并排成一组，可和其它组件一起拖动排序。
+pub(crate) const MICE: usize = 10;
 /// 天气徽标的基础槽宽；温度文字更长时由 `widen` 补足。
 pub(crate) const WEATHER_WIDTH: f32 = 38.0;
-const WIDTHS: [f32; 10] = [44.0,20.0,27.0,27.0,27.0,WEATHER_WIDTH,14.0,crate::focus_bar::WIDTH,20.0,32.0];
+const WIDTHS: [f32; 11] = [44.0,20.0,27.0,27.0,27.0,WEATHER_WIDTH,14.0,crate::focus_bar::WIDTH,20.0,32.0,46.0];
 
-pub(crate) const DEFAULT_ORDER: [usize;6]=[BATTERY,PET,CLOCK,QUOTA,MUSIC,FOCUS];
+pub(crate) const DEFAULT_ORDER: [usize;7]=[MICE,BATTERY,PET,CLOCK,QUOTA,MUSIC,FOCUS];
 pub(crate) fn valid_order(order:&[usize])->bool {
-    order.len()==6 && DEFAULT_ORDER.iter().all(|slot|order.iter().filter(|value|*value==slot).count()==1)
+    order.len()==DEFAULT_ORDER.len() && DEFAULT_ORDER.iter().all(|slot|order.iter().filter(|value|*value==slot).count()==1)
 }
 
 pub(crate) fn animations_enabled()->bool {
@@ -44,14 +46,15 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
-    pub fn new(battery:bool,quotas:usize,music:bool,focus:bool,bell:bool,pet:bool,weather:bool)->Self {
+    pub fn new(battery:bool,mice:bool,quotas:usize,music:bool,focus:bool,bell:bool,pet:bool,weather:bool)->Self {
         fn place(cursor:&mut f32,width:f32)->f32 {let x=*cursor+width/2.0;*cursor+=width+12.0;x}
         let mut widths=WIDTHS.to_vec(); widths.resize(WIDTHS.len()+quotas.saturating_sub(3),27.0);
         let mut x=vec![None;widths.len()];let mut cursor=16.0;
         let count=quotas;
-        let order=if battery {[BATTERY,CLOCK,QUOTA]}else{[QUOTA,CLOCK,BATTERY]};
+        let order=if battery {[MICE,BATTERY,CLOCK,QUOTA]}else{[MICE,QUOTA,CLOCK,BATTERY]};
         for slot in order {
             match slot {
+                MICE if mice=>x[slot]=Some(place(&mut cursor,WIDTHS[slot])),
                 BATTERY if battery=>x[slot]=Some(place(&mut cursor,WIDTHS[slot])),
                 CLOCK=>{
                     if pet {x[PET]=Some(place(&mut cursor,WIDTHS[PET]));}
@@ -119,7 +122,7 @@ pub(crate) struct Motion {
     initialized: bool,
 }
 impl Default for Motion {
-    fn default()->Self {Self {target:Layout::new(false,0,false,false,false,false,false),positions:vec![Spring::new(0.0,360.0,0.76);10],initialized:false}}
+    fn default()->Self {Self {target:Layout::new(false,false,0,false,false,false,false,false),positions:vec![Spring::new(0.0,360.0,0.76);11],initialized:false}}
 }
 impl Motion {
     pub fn step(&mut self,target:Layout,dt:f32,animate:bool) {
@@ -145,8 +148,8 @@ impl Motion {
 mod tests {
     use super::*;
     #[test] fn deepseek_balance_follows_more_and_never_overlaps(){
-        for order in [DEFAULT_ORDER,[FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY]] {for quotas in 1..=6 {for battery in [false,true]{
-            let mut layout=Layout::new(battery,quotas,true,true,false,true,false);layout.reorder(&order);layout.balance_tail(quotas-1,76.0);layout.widen_clock(40.0);
+        for order in [DEFAULT_ORDER,[MICE,FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY]] {for quotas in 1..=6 {for battery in [false,true]{
+            let mut layout=Layout::new(battery,false,quotas,true,true,false,true,false);layout.reorder(&order);layout.balance_tail(quotas-1,76.0);layout.widen_clock(40.0);
             let mut boxes:Vec<_>=layout.x.iter().enumerate().filter_map(|(i,x)|x.map(|x|{let width=layout.widths[i];(x-width/2.0,x+width/2.0)})).collect();boxes.sort_by(|a,b|a.0.total_cmp(&b.0));
             assert!(boxes.windows(2).all(|p|p[1].0-p[0].1>=6.9));assert!(boxes.last().unwrap().1<=layout.width/2.0-15.9);
             assert!(layout.width<crate::app::WIN_W);
@@ -154,9 +157,9 @@ mod tests {
     }
     #[test]
     fn clock_12h_keeps_components_separate_in_custom_orders(){
-        for order in [DEFAULT_ORDER,[FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY]] {
+        for order in [DEFAULT_ORDER,[MICE,FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY]] {
             for quotas in 0..=5 {
-                let mut layout=Layout::new(true,quotas,true,true,false,true,false);
+                let mut layout=Layout::new(true,false,quotas,true,true,false,true,false);
                 layout.reorder(&order);layout.widen_clock(40.0);
                 let mut boxes:Vec<_>=layout.x.iter().enumerate().filter_map(|(i,x)|x.map(|x|{
                     let width=layout.widths[i];
@@ -173,9 +176,10 @@ mod tests {
     fn custom_order_preserves_groups_and_hidden_positions(){
         assert!(!valid_order(&[0,0,2,6,7,9]));
         assert!(!valid_order(&[0,1,2]));
-        let order=[FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY];
+        let order=[MICE,FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY];
+        assert!(valid_order(&DEFAULT_ORDER));
         for battery in [false,true]{for count in 0..=5 {
-            let mut layout=Layout::new(battery,count,true,true,false,true,false);
+            let mut layout=Layout::new(battery,false,count,true,true,false,true,false);
             let width=layout.width;layout.reorder(&order);
             assert_eq!(layout.width,width);
             let positions:Vec<_>=order.iter().filter_map(|i|layout.x[*i]).collect();
@@ -188,8 +192,8 @@ mod tests {
     }
     #[test]
     fn every_component_combination_fits_without_overlaps(){
-        for quotas in 0..=8 {for battery in [false,true] {for music in [false,true] {for focus in [false,true] {for bell in [false,true] {for pet in [false,true] {for weather in [false,true] {
-            let layout=Layout::new(battery,quotas,music,focus,bell,pet,weather);
+        for quotas in 0..=8 {for battery in [false,true] {for mice in [false,true] {for music in [false,true] {for focus in [false,true] {for bell in [false,true] {for pet in [false,true] {for weather in [false,true] {
+            let layout=Layout::new(battery,mice,quotas,music,focus,bell,pet,weather);
             let mut boxes:Vec<_>=layout.x.iter().enumerate().filter_map(|(i,x)|x.map(|x|(x-layout.widths[i]/2.0,x+layout.widths[i]/2.0))).collect();
             boxes.sort_by(|a,b|a.0.total_cmp(&b.0));
             assert_eq!(layout.quota_slots().count(),quotas);
@@ -197,13 +201,13 @@ mod tests {
             assert!(boxes.last().unwrap().1<=layout.width/2.0-15.9);
             assert!(boxes.windows(2).all(|pair|pair[1].0-pair[0].1>=6.9),"组件不能挤在一起：{layout:?}");
             assert_eq!(layout.clearance(CLOCK),1.0);
-        }}}}}}}
+        }}}}}}}}
     }
     #[test]
     fn weather_sits_after_the_clock_and_follows_it_in_custom_orders(){
-        for order in [DEFAULT_ORDER,[FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY],[QUOTA,MUSIC,CLOCK,PET,FOCUS,BATTERY]] {
+        for order in [DEFAULT_ORDER,[MICE,FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY],[QUOTA,MUSIC,CLOCK,PET,FOCUS,BATTERY,MICE]] {
             for quotas in 0..=3 {for battery in [false,true] {
-                let mut layout=Layout::new(battery,quotas,true,true,false,true,true);
+                let mut layout=Layout::new(battery,false,quotas,true,true,false,true,true);
                 layout.reorder(&order);
                 let (clock,weather)=match (layout.x[CLOCK],layout.x[WEATHER]) {(Some(c),Some(w))=>(c,w),_=>panic!("时钟与天气都应就位：{layout:?}")};
                 assert!(weather>clock+22.0+6.9,"天气应紧跟时钟右侧：时钟 {clock}，天气 {weather}");
@@ -219,7 +223,7 @@ mod tests {
     }
     #[test]
     fn weather_chip_widens_symmetrically_without_overlaps(){
-        let mut layout=Layout::new(true,3,true,true,false,true,true);
+        let mut layout=Layout::new(true,false,3,true,true,false,true,true);
         let before=layout.x.clone();
         layout.widen(WEATHER,18.0);
         assert!((layout.widths[WEATHER]-56.0).abs()<0.01);
@@ -234,13 +238,26 @@ mod tests {
         boxes.sort_by(|a,b|a.0.total_cmp(&b.0));
         assert!(boxes.windows(2).all(|p|p[1].0-p[0].1>=6.9));
         // 未就位的槽位调用 widen 应是空操作。
-        let mut empty=Layout::new(true,0,true,true,false,true,false);
+        let mut empty=Layout::new(true,false,0,true,true,false,true,false);
         let width=empty.width;empty.widen(WEATHER,20.0);
         assert_eq!(empty.width,width);
     }
     #[test]
+    fn mice_rings_follow_custom_order_without_overlaps(){
+        let mut layout=Layout::new(true,true,2,true,true,false,true,false);
+        layout.reorder(&DEFAULT_ORDER);
+        let leftmost=layout.x.iter().enumerate().filter_map(|(slot,x)|x.map(|x|x-layout.widths[slot]/2.0)).fold(f32::INFINITY,f32::min);
+        assert!((layout.x[MICE].unwrap()-layout.widths[MICE]/2.0-leftmost).abs()<0.01,"默认排在最左侧");
+        layout.reorder(&[FOCUS,MUSIC,QUOTA,CLOCK,PET,BATTERY,MICE]);
+        let rightmost=layout.x.iter().enumerate().filter_map(|(slot,x)|x.map(|x|x+layout.widths[slot]/2.0)).fold(f32::NEG_INFINITY,f32::max);
+        assert!((layout.x[MICE].unwrap()+layout.widths[MICE]/2.0-rightmost).abs()<0.01,"拖到末尾后排在最右侧");
+        let mut boxes:Vec<_>=layout.x.iter().enumerate().filter_map(|(slot,x)|x.map(|x|(x-layout.widths[slot]/2.0,x+layout.widths[slot]/2.0))).collect();
+        boxes.sort_by(|a,b|a.0.total_cmp(&b.0));
+        assert!(boxes.windows(2).all(|pair|pair[1].0-pair[0].1>=6.9),"外设电量环不应与其它组件重叠：{layout:?}");
+    }
+    #[test]
     fn replacing_battery_moves_continuously_and_supports_an_instant_state(){
-        let before=Layout::new(true,1,true,false,false,true,false);let after=Layout::new(false,1,true,false,false,true,false);
+        let before=Layout::new(true,false,1,true,false,false,true,false);let after=Layout::new(false,false,1,true,false,false,true,false);
         let mut motion=Motion::default();motion.step(before.clone(),0.0,true);
         motion.step(after.clone(),1.0/60.0,true);let mid=motion.current().x[QUOTA].unwrap();
         assert!(mid<before.x[QUOTA].unwrap()&&mid>after.x[QUOTA].unwrap());
