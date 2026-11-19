@@ -124,16 +124,16 @@ impl App {
         let (next,next_card)=btn(258.0,30.0,"m-next");
         paint::skip(&next_card,258.0,y,1.0,ic);
         let (volume_button,volume_card)=btn(367.0,26.0,"m-volume");
-        let (volume,muted)=self.music_volume_ui.unwrap_or((0,false));
-        paint::speaker(&volume_card,367.0,y,muted,if self.music_volume_ui.is_some(){ic}else{theme::GRAY});
-        let hint=if self.music_volume_ui.is_some(){format!("音乐应用音量 {volume}%{} · 点击展开 · 滚轮调节",if muted{"（已静音）"}else{""})}else{"暂无可调节的音乐音频会话".into()};
+        let (volume,muted)=self.volume_ui.unwrap_or((0,false));
+        paint::speaker(&volume_card,367.0,y,muted,if self.volume_ui.is_some(){ic}else{theme::GRAY});
+        let hint=if self.volume_ui.is_some(){format!("系统音量 {volume}%{} · 点击展开 · 滚轮调节",if muted{"（已静音）"}else{""})}else{"暂无可调节的输出设备".into()};
         let volume_button=volume_button.on_hover_text(hint);
-        if c.live && has && self.music_volume_ui.is_some() {
+        if c.live && has && self.volume_ui.is_some() {
             if volume_button.clicked(){self.music_volume_open=!self.music_volume_open;}
             if volume_button.hovered(){
                     let delta=c.ui.ctx().input(|i|i.raw_scroll_delta.y);
                     if delta.abs()>0.5 {
-                        self.change_music_volume(Transport::SetVolume((volume as f32+delta/120.0*4.0).round().clamp(0.0,100.0) as u32),cmds);
+                        self.change_system_volume(Transport::SetVolume((volume as f32+delta/120.0*4.0).round().clamp(0.0,100.0) as u32),cmds);
                     }
             }
         }
@@ -161,13 +161,24 @@ impl App {
         }
     }
 
-    fn change_music_volume(&mut self,command:Transport,cmds:&mut Vec<Cmd>){
-        let Some((volume,_))=self.music_volume_ui else{return;};
-        let next=match command{Transport::SetVolume(v)=>(v,false),Transport::SetMute(muted)=>(volume,muted),_=>return};
-        if self.music_volume_ui==Some(next){return;}
-        self.music_volume_ui=Some(next);
-        self.music_volume_quiet_until=self.t+0.9;
-        cmds.push(Cmd::MusicVolume(command,self.media.source.clone()));
+    /// 岛上的音量浮条作用于默认输出设备（系统主音量），不改变单个应用的会话音量。
+    fn change_system_volume(&mut self,command:Transport,cmds:&mut Vec<Cmd>){
+        let Some((volume,_))=self.volume_ui else{return;};
+        match command{
+            Transport::SetVolume(v)=>{
+                if self.volume_ui==Some((v,false)){return;}
+                self.volume_ui=Some((v,false));
+                self.volume_quiet_until=self.t+0.9;
+                cmds.push(Cmd::SetVolume(v));
+            }
+            Transport::SetMute(muted)=>{
+                if self.volume_ui==Some((volume,muted)){return;}
+                self.volume_ui=Some((volume,muted));
+                self.volume_quiet_until=self.t+0.9;
+                cmds.push(Cmd::ToggleMute);
+            }
+            _=>{}
+        }
     }
 
     pub(crate) fn draw_music_volume(&mut self,c:&Card,cmds:&mut Vec<Cmd>){
@@ -179,7 +190,7 @@ impl App {
             self.music_volume_open=false;
         }
         let a=ctx.animate_bool_with_time(egui::Id::new("music-volume-open"),self.music_volume_open,0.12);
-        let Some((volume,muted))=self.music_volume_ui else{return;};
+        let Some((volume,muted))=self.volume_ui else{return;};
         if a<0.01{return;}
         let popup=c.faded(a);
         let popup=if self.music_volume_open{popup}else{popup.ghost()};
@@ -197,11 +208,11 @@ impl App {
             let delta=ctx.input(|i|i.raw_scroll_delta.y);
             if delta.abs()>0.5{command=Some(Transport::SetVolume((volume as f32+delta/120.0*4.0).round().clamp(0.0,100.0) as u32));}
         }
-        let mute=popup.hit(353.0,82.0,28.0,20.0,"m-volume-mute").on_hover_text(if muted{"恢复音乐音量"}else{"静音音乐，保留当前音量"});
+        let mute=popup.hit(353.0,82.0,28.0,20.0,"m-volume-mute").on_hover_text(if muted{"恢复系统音量"}else{"静音系统，保留当前音量"});
         let (hover,press)=popup.hover_t(&mute);
         if popup.live && mute.clicked(){command=Some(Transport::SetMute(!muted));}
-        if let Some(command)=command {self.change_music_volume(command,cmds);}
-        let (volume,muted)=self.music_volume_ui.unwrap_or((volume,muted));
+        if let Some(command)=command {self.change_system_volume(command,cmds);}
+        let (volume,muted)=self.volume_ui.unwrap_or((volume,muted));
         let ink=if muted{theme::GRAY}else{theme::WHITE};
         popup.centered_text(367.0,20.0,&format!("{volume}%"),10.5,W::Semibold,ink,H::Center);
         popup.fill(364.5,32.0,5.0,43.0,2.5,Color32::from_gray(68));

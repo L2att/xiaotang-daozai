@@ -1574,7 +1574,7 @@ fn kugou_position_advances_without_duration_and_respects_pause_and_seek(){
 }
 
 #[test]
-fn music_volume_popup_opens_and_mute_restores_the_selected_players_level(){
+fn music_volume_popup_opens_and_mute_toggles_system_mute(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     let mut h=H::new();
     h.media=crate::smtc::NowPlaying{source:"QQMusic.exe".into(),title:"Track".into(),artist:"Artist".into(),duration:120.0,volume:Some((60,false)),..Default::default()};
@@ -1584,26 +1584,25 @@ fn music_volume_popup_opens_and_mute_restores_the_selected_players_level(){
     assert!(h.app.music_volume_open);
     assert!(h.cmds.is_empty(),"打开浮条不应改变音量或静音");
     h.hover(H::local(367.0,92.0),0.2);h.click(H::local(367.0,92.0));
-    assert!(h.cmds.contains(&crate::app::Cmd::MusicVolume(crate::smtc::Transport::SetMute(true),"QQMusic.exe".into())));
-    assert!(!h.cmds.contains(&crate::app::Cmd::ToggleMute));
-    assert_eq!(h.app.music_volume_ui,Some((60,true)));
-    assert_eq!(h.app.volume_ui,Some((45,false)));
+    assert!(h.cmds.contains(&crate::app::Cmd::ToggleMute));
+    assert!(!h.cmds.iter().any(|c|matches!(c,crate::app::Cmd::MusicVolume(..))),"岛上音量不能回调应用会话");
+    assert_eq!(h.app.volume_ui,Some((45,true)));
     h.click(H::local(367.0,92.0));
-    assert_eq!(h.app.music_volume_ui,Some((60,false)),"恢复时沿用静音前的音量");
-    assert!(h.cmds.contains(&crate::app::Cmd::MusicVolume(crate::smtc::Transport::SetMute(false),"QQMusic.exe".into())));
+    assert_eq!(h.app.volume_ui,Some((45,false)),"恢复时沿用静音前的音量");
 }
 
 #[test]
 fn music_volume_popup_slider_unmutes_and_scrolls_without_changing_pages(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
-    h.media=crate::smtc::NowPlaying{source:"QQMusic.exe".into(),title:"Track".into(),artist:"Artist".into(),volume:Some((60,true)),..Default::default()};
+    h.media=crate::smtc::NowPlaying{source:"QQMusic.exe".into(),title:"Track".into(),artist:"Artist".into(),..Default::default()};
+    h.app.volume_ui=Some((60,true));
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.click(H::local(367.0,118.0));h.hover(H::local(367.0,53.5),0.2);
     h.click(H::local(367.0,53.5));
-    assert_eq!(h.app.music_volume_ui,Some((50,false)));
-    assert!(h.cmds.contains(&crate::app::Cmd::MusicVolume(crate::smtc::Transport::SetVolume(50),"QQMusic.exe".into())));
-    h.wheel(120.0);assert_eq!(h.app.music_volume_ui,Some((54,false)));assert_eq!(h.app.page,0);
-    h.click(H::local(367.0,32.0));assert_eq!(h.app.music_volume_ui,Some((100,false)));
-    h.click(H::local(367.0,75.0));assert_eq!(h.app.music_volume_ui,Some((0,false)));
+    assert_eq!(h.app.volume_ui,Some((50,false)));
+    assert!(h.cmds.contains(&crate::app::Cmd::SetVolume(50)));
+    h.wheel(120.0);assert_eq!(h.app.volume_ui,Some((54,false)));assert_eq!(h.app.page,0);
+    h.click(H::local(367.0,32.0));assert_eq!(h.app.volume_ui,Some((100,false)));
+    h.click(H::local(367.0,75.0));assert_eq!(h.app.volume_ui,Some((0,false)));
     h.click(H::local(387.0,68.0));assert_eq!(h.app.page,0,"浮条遮挡部分不能穿透触发翻页");
     h.click(H::local(387.0,18.0));assert!(!h.app.settings_open,"浮条遮挡部分不能穿透打开设置");
 }
@@ -1612,6 +1611,7 @@ fn music_volume_popup_slider_unmutes_and_scrolls_without_changing_pages(){
 fn music_volume_popup_closes_on_escape_outside_click_source_change_and_collapse(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
     h.media=crate::smtc::NowPlaying{source:"QQMusic.exe".into(),title:"Track".into(),artist:"Artist".into(),volume:Some((60,false)),..Default::default()};
+    h.app.volume_ui=Some((60,false));
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.click(H::local(367.0,118.0));
     h.frame(vec![egui::Event::Key{key:egui::Key::Escape,physical_key:None,pressed:true,repeat:false,modifiers:Default::default()}]);
     assert!(!h.app.music_volume_open);assert!(h.app.open,"Esc 只关闭浮条，保留音乐面板");
@@ -1629,7 +1629,7 @@ fn music_volume_popup_gallery(){
     let dest=std::path::PathBuf::from(std::env::var_os("DAOZAI_MUSIC_VOLUME_PREVIEW").expect("需指定预览目录"));std::fs::create_dir_all(&dest).unwrap();
     for (name,muted,lyrics) in [("volume",false,false),("muted",true,false),("lyrics",false,true)] {
         let mut h=H::new();h.ctx.set_pixels_per_point(2.0);h.app.settings.pet=false;h.app.show_lyrics=lyrics;
-        h.media=crate::smtc::NowPlaying{source:"cloudmusic.exe".into(),title:"晴天".into(),artist:"周杰伦".into(),position:92.0,duration:269.0,volume:Some((62,muted)),..Default::default()};
+        h.media=crate::smtc::NowPlaying{source:"cloudmusic.exe".into(),title:"晴天".into(),artist:"周杰伦".into(),position:92.0,duration:269.0,..Default::default()};h.app.volume_ui=Some((62,muted));
         h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
         if lyrics{h.app.set_lyrics("晴天","周杰伦",269.0,crate::lyrics::parse_lrc("[00:00]午后的阳光落在窗边\n[01:30]风把回忆吹向远方\n[01:40]慢慢走过这段时光"));}
         h.click(H::local(367.0,118.0));h.hover(H::local(330.0,112.0),0.25);
@@ -1643,17 +1643,16 @@ fn music_volume_popup_gallery(){
 }
 
 #[test]
-fn music_volume_wheel_and_player_switch_keep_system_volume_untouched(){
+fn music_volume_wheel_adjusts_system_volume_and_ignores_player_switch(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
     h.media=crate::smtc::NowPlaying{source:"QQMusic.exe".into(),title:"Track".into(),artist:"Artist".into(),volume:Some((60,true)),..Default::default()};
     h.app.volume_ui=Some((45,false));h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.hover(H::local(367.0,118.0),0.2);h.wheel(120.0);
-    assert!(h.cmds.contains(&crate::app::Cmd::MusicVolume(crate::smtc::Transport::SetVolume(64),"QQMusic.exe".into())),"音量={:?} 命令={:?} 页={} 指针={:?}",h.app.music_volume_ui,h.cmds,h.app.page,h.cursor);
-    assert_eq!(h.app.music_volume_ui,Some((64,false)));
+    assert!(h.cmds.contains(&crate::app::Cmd::SetVolume(49)),"音量={:?} 命令={:?} 页={} 指针={:?}",h.app.volume_ui,h.cmds,h.app.page,h.cursor);
+    assert_eq!(h.app.volume_ui,Some((49,false)));
     h.media.source="cloudmusic.exe".into();h.media.volume=Some((22,false));h.frame(vec![]);
-    assert_eq!(h.app.music_volume_ui,Some((22,false)),"换播放器立即更新独立音量");
-    assert_eq!(h.app.volume_ui,Some((45,false)));
+    assert_eq!(h.app.volume_ui,Some((49,false)),"换播放器不改变系统音量");
     h.media.volume=None;h.cmds.clear();h.click(H::local(367.0,118.0));h.wheel(120.0);
-    assert!(h.cmds.is_empty(),"没有应用会话时不可回退到系统音量");
+    assert!(h.cmds.contains(&crate::app::Cmd::SetVolume(53)),"没有应用会话时仍可调节系统音量");
 }
 
 #[test]
@@ -2866,7 +2865,7 @@ fn quota_page_navigation_tracks_the_taller_panel(){
     h.app.show_page(6);h.hover(H::local(300.0,60.0),0.8);
     assert!((h.hit.height()-178.0).abs()<0.2,"额度页新增的底部空间应属于命中区域");
     let dot=h.shapes.iter().find_map(|shape|match &shape.shape{
-        egui::Shape::Rect(rect) if (rect.rect.width()-4.0).abs()<0.1&&(rect.rect.height()-4.0).abs()<0.1&&(rect.rect.center().y-171.5).abs()<0.1=>Some(rect.rect.center()),_=>None,
+        egui::Shape::Rect(rect) if (rect.rect.width()-4.0).abs()<0.1&&(rect.rect.height()-4.0).abs()<0.1&&(rect.rect.center().y-172.8).abs()<0.1=>Some(rect.rect.center()),_=>None,
     }).expect("分页圆点应随加高的面板下移");
     h.click(dot);assert_ne!(h.app.page,6,"新增底部区域中的分页应可点击");
     h.app.show_page(6);h.hover(H::local(300.0,60.0),0.8);
