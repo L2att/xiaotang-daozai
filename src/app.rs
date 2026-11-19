@@ -780,7 +780,8 @@ pub struct App {
     pub(crate) volume_quiet_until: f64,
     /// 音量条填充的缓动量（0..1），让数值变化有「量感」。
     pub(crate) volume_a: f32,
-    /// 岛上的音量浮条是否展开；数值直接复用系统主音量 volume_ui。
+    pub(crate) music_volume_ui: Option<(u32,bool)>,
+    pub(crate) music_volume_quiet_until: f64,
     pub(crate) music_volume_open: bool,
     /// 上一次看到的蓝牙设备，用来只在连接/断开时提示一次。
     pub(crate) bt_shown: Vec<crate::bt::Device>,
@@ -931,6 +932,8 @@ impl App {
             volume_ui: None,
             volume_quiet_until: 0.0,
             volume_a: 0.0,
+            music_volume_ui: None,
+            music_volume_quiet_until: 0.0,
             music_volume_open: false,
             bt_shown: Vec::new(),
             bt_initialized: false,
@@ -3071,6 +3074,8 @@ impl App {
     fn update_media(&mut self, env: &Env, ctx: &egui::Context) {
         let m = &env.media;
         if !m.is_music() {
+            self.music_volume_ui=None;
+            self.music_volume_quiet_until=0.0;
             self.music_volume_open=false;
             self.media=NowPlaying::default();
             self.media_anchor=(String::new(),0.0,0.0,false);
@@ -3083,7 +3088,10 @@ impl App {
             self.media_anchor = (m.title.clone(), m.position, env.t, m.playing);
         }
         let mut np = m.clone();
-        if self.media.source!=m.source {self.music_volume_open=false;}
+        if self.media.source!=m.source || m.volume.is_none(){self.music_volume_open=false;}
+        if self.media.source!=m.source || self.t>=self.music_volume_quiet_until || m.volume.is_none() {
+            self.music_volume_ui=m.volume;
+        }
         if m.playing {
             let (_, pos, _, _) = &self.media_anchor;
             np.position = if let Some(sampled)=m.sampled_at {m.position+sampled.elapsed().as_secs_f64()}
